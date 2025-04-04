@@ -1,0 +1,1745 @@
+lgpio Python (local)
+lgpio is a Python module which allows control of the GPIO of a Linux SBC.
+Features
+
+    reading and writing GPIO singly and in groups
+    software timed PWM and waves
+    GPIO callbacks
+    pipe notification of GPIO alerts
+    I2C wrapper
+    SPI wrapper
+    serial link wrapper
+
+Exceptions
+By default a fatal exception is raised if you pass an invalid argument to a lgpio function.
+
+If you wish to handle the returned status yourself you should set lgpio.exceptions to False.
+
+You may prefer to check the returned status in only a few parts of your code. In that case do the following:
+
+Example
+
+lgpio.exceptions = False
+
+# Code where you want to test the error status
+
+lgpio.exceptions = True
+Licence
+This is free and unencumbered software released into the public domain.
+
+Anyone is free to copy, modify, publish, use, compile, sell, or distribute this software, either in source code form or as a compiled binary, for any purpose, commercial or non-commercial, and by any means.
+
+In jurisdictions that recognize copyright laws, the author or authors of this software dedicate any and all copyright interest in the software to the public domain. We make this dedication for the benefit of the public at large and to the detriment of our heirs and successors. We intend this dedication to be an overt act of relinquishment in perpetuity of all present and future rights to this software under copyright law.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+For more information, please refer to <http://unlicense.org/>
+OVERVIEW
+
+GPIO
+
+gpiochip_open	Opens a gpiochip device
+gpiochip_close	Closes a gpiochip device
+
+gpio_get_chip_info	Get information about a gpiochip
+gpio_get_line_info	Get information about a gpiochip line
+
+gpio_get_mode	Gets the mode of a GPIO
+
+gpio_claim_input	Claims a GPIO for input
+gpio_claim_output	Claims a GPIO for output
+gpio_claim_alert	Claims a GPIO for alerts
+gpio_free	Frees a GPIO
+
+group_claim_input	Claims a group of GPIO for inputs
+group_claim_output	Claims a group of GPIO for outputs
+group_free	Frees a group of GPIO
+
+gpio_read	Reads a GPIO
+gpio_write	Writes a GPIO
+
+group_read	Reads a group of GPIO
+group_write	Writes a group of GPIO
+
+tx_pulse	Starts pulses on a GPIO
+tx_pwm	Starts PWM on a GPIO
+tx_servo	Starts servo pulses on a GPIO
+tx_wave	Starts a wave on a group of GPIO
+tx_busy	See if tx is active on a GPIO or group
+tx_room	See if more room for tx on a GPIO or group
+
+gpio_set_debounce_micros	Sets the debounce time for a GPIO
+gpio_set_watchdog_micros	Sets the watchdog time for a GPIO
+
+callback	Starts a GPIO callback
+
+I2C
+
+i2c_open	Opens an I2C device
+i2c_close	Closes an I2C device
+
+i2c_write_quick	SMBus write quick
+
+i2c_read_byte	SMBus read byte
+i2c_write_byte	SMBus write byte
+
+i2c_read_byte_data	SMBus read byte data
+i2c_write_byte_data	SMBus write byte data
+
+i2c_read_word_data	SMBus read word data
+i2c_write_word_data	SMBus write word data
+
+i2c_read_block_data	SMBus read block data
+i2c_write_block_data	SMBus write block data
+
+i2c_read_i2c_block_data	SMBus read I2C block data
+i2c_write_i2c_block_data	SMBus write I2C block data
+
+i2c_read_device	Reads the raw I2C device
+i2c_write_device	Writes the raw I2C device
+
+i2c_process_call	SMBus process call
+i2c_block_process_call	SMBus block process call
+
+i2c_zip	Performs multiple I2C transactions
+
+NOTIFICATIONS
+
+notify_open	Request a notification handle
+notify_close	Close a notification
+notify_pause	Pause notifications
+notify_resume	Resume notifications
+
+SERIAL
+
+serial_open	Opens a serial device
+serial_close	Closes a serial device
+
+serial_read_byte	Reads a byte from a serial device
+serial_write_byte	Writes a byte to a serial device
+
+serial_read	Reads bytes from a serial device
+serial_write	Writes bytes to a serial device
+
+serial_data_available	Returns number of bytes ready to be read
+
+SPI
+
+spi_open	Opens a SPI device
+spi_close	Closes a SPI device
+
+spi_read	Reads bytes from a SPI device
+spi_write	Writes bytes to a SPI device
+spi_xfer	Transfers bytes with a SPI device
+
+UTILITIES
+
+get_internal	Get an internal configuration value
+set_internal	Set an internal configuration value
+
+get_module_version	Get the lgpio Python module version
+error_text	Get the error text for an error code
+
+class pulse
+pulse(group_bits, group_mask, pulse_delay)
+ass to store pulse information.
+
+ods defined here:
+pulse(group_bits, group_mask, pulse_delay)
+Initialises a pulse.
+
+Parameters
+
+group_bits:= the levels to set if the corresponding bit in
+             group_mask is set.
+group_mask:= a mask indicating the group GPIO to be updated.
+     delay:= the delay in microseconds before the next pulse.
+FUNCTIONS
+callback(handle, gpio, edge=1, func=None)
+Calls a user supplied function (a callback) whenever the specified GPIO edge is detected.
+
+Parameters
+
+handle:= >= 0 (as returned by gpiochip_open).
+  gpio:= >= 0, as legal for the gpiochip.
+  edge:= BOTH_EDGES, RISING_EDGE (default), or FALLING_EDGE.
+  func:= user supplied callback function.
+
+
+Returns a callback instance.
+
+The user supplied callback receives four parameters, the chip, the GPIO, the level, and the timestamp.
+
+The reported level will be one of
+
+0: change to low (a falling edge)
+1: change to high (a rising edge)
+2: no level change (a watchdog timeout)
+
+Early kernels used to provide a timestamp as the number of nanoseconds since the Epoch (start of 1970). Later kernels use the number of nanoseconds since boot. It's probably best not to make any assumption as to the timestamp origin.
+
+If a user callback is not specified a default tally callback is provided which simply counts edges. The count may be retrieved by calling the callback instance's tally() method. The count may be reset to zero by calling the callback instance's reset_tally() method.
+
+The callback may be cancelled by calling the callback instance's cancel() method.
+
+A GPIO may have multiple callbacks (although I can't think of a reason to do so).
+
+If you want to track the level of more than one GPIO do so by maintaining the state in the callback. Do not use gpio_read. Remember the alert that triggered the callback may have happened several milliseconds before and the GPIO may have changed level many times since then.
+
+Example
+
+def cbf(chip, gpio, level, timestamp):
+   print(chip, gpio, level, timestamp)
+
+cb1 = sbc.callback(0, 22, lgpio.BOTH_EDGES, cbf)
+
+cb2 = sbc.callback(0, 4, lgpio.BOTH_EDGES)
+
+cb3 = sbc.callback(0, 17)
+
+print(cb3.tally())
+
+cb3.reset_tally()
+
+cb1.cancel() # To cancel callback cb1.
+error_text(errnum)
+Returns a description of an error number.
+
+Parameters
+
+errnum:= <0, the error number
+
+
+Example
+
+print(sbc.error_text(-5))
+level not 0-1
+get_internal(config_id)
+Returns the value of a configuration item.
+
+If OK returns a list of 0 (OK) and the item's value.
+
+On failure returns a list of negative error code and None.
+
+Parameters
+
+config_id:= the configuration item.
+
+
+Example
+
+cfg = sbc.get_internal(0)
+print(cfg)
+get_module_version()
+Returns the version number of the lgpio Python module as a dotted quad.
+
+A.B.C.D
+
+A. API major version, changed if breaks previous API
+B. API minor version, changed when new function added
+C. bug fix
+D. documentation change
+gpio_claim_alert(handle, gpio, eFlags, lFlags=0, notify_handle=None)
+This claims a GPIO to be used as a source of alerts on level changes.
+
+Parameters
+
+        handle:= >= 0 (as returned by gpiochip_open).
+          gpio:= >= 0, as legal for the gpiochip.
+        eFlags:= event flags for the GPIO.
+        lFlags:= line flags for the GPIO.
+notifiy_handle:= >=0 (as returned by notify_open).
+
+
+If OK returns 0.
+
+On failure returns a negative error code.
+
+The event flags are used to generate alerts for a rising edge, falling edge, or both edges.
+
+The line flags may be used to set the GPIO as active low, open drain, open source, pull up, pull down, pull off.
+
+Use the default notification handle of None unless you plan to read the alerts from a notification pipe you have opened.
+gpio_claim_input(handle, gpio, lFlags=0)
+This claims a GPIO for input.
+
+Parameters
+
+handle:= >= 0 (as returned by gpiochip_open).
+  gpio:= the GPIO to be claimed.
+lFlags:= line flags for the GPIO.
+
+
+If OK returns 0.
+
+On failure returns a negative error code.
+
+The line flags may be used to set the GPIO as active low, open drain, open source, pull up, pull down, pull off.
+
+Example
+
+sbc.gpio_claim_input(h, 23) # open GPIO 23 for input.
+gpio_claim_output(handle, gpio, level=0, lFlags=0)
+This claims a GPIO for output.
+
+Parameters
+
+handle:= >= 0 (as returned by gpiochip_open).
+  gpio:= the GPIO to be claimed.
+ level:= the initial value for the GPIO.
+lFlags:= line flags for the GPIO.
+
+
+If OK returns 0.
+
+On failure returns a negative error code.
+
+The line flags may be used to set the GPIO as active low, open drain, open source, pull up, pull down, pull off.
+
+If level is zero the GPIO will be initialised low (0). If any other value is used the GPIO will be initialised high (1).
+
+Example
+
+sbc.gpio_claim_output(h, 3) # open GPIO 3 for low output.
+gpio_free(handle, gpio)
+This frees a GPIO.
+
+Parameters
+
+handle:= >= 0 (as returned by gpiochip_open).
+  gpio:= the GPIO to be freed.
+
+
+If OK returns 0.
+
+On failure returns a negative error code.
+
+The GPIO may now be claimed by another user or for a different purpose.
+gpio_get_chip_info(handle)
+This returns summary information of an opened gpiochip.
+
+Parameters
+
+handle:= >= 0 (as returned by gpiochip_open).
+
+
+If OK returns a list of okay status, number of lines, name, and label.
+
+On failure returns a negative error code.
+gpio_get_line_info(handle, gpio)
+This returns detailed information of a GPIO of an opened gpiochip.
+
+Parameters
+
+handle:= >= 0 (as returned by gpiochip_open).
+  gpio:= the GPIO.
+
+
+If OK returns a list of okay status, GPIO number, line flags, name, and user.
+
+The meaning of the line flags bits are as given for the mode by gpio_get_mode.
+
+On failure returns a negative error code.
+gpio_get_mode(handle, gpio)
+This returns the mode of a GPIO.
+
+Parameters
+
+handle:= >= 0 (as returned by gpiochip_open).
+  gpio:= the GPIO.
+
+
+If OK returns the mode of the GPIO.
+
+On failure returns a negative error code.
+
+Bit	Value	Meaning
+0	1	Kernel: In use by the kernel
+1	2	Kernel: Output
+2	4	Kernel: Active low
+3	8	Kernel: Open drain
+4	16	Kernel: Open source
+5	32	Kernel: Pull up set
+6	64	Kernel: Pull down set
+7	128	Kernel: Pulls off set
+8	256	LG: Input
+9	512	LG: Output
+10	1024	LG: Alert
+11	2048	LG: Group
+12	4096	LG: ---
+13	8192	LG: ---
+14	16384	LG: ---
+15	32768	LG: ---
+16	65536	Kernel: Input
+17	1<<17	Kernel: Rising edge alert
+18	1<<18	Kernel: Falling edge alert
+19	1<<19	Kernel: Realtime clock alert
+
+
+The LG bits are only set if the query was made by the process that owns the GPIO.
+gpio_read(handle, gpio)
+This returns the level of a GPIO.
+
+Parameters
+
+handle:= >= 0 (as returned by gpiochip_open).
+  gpio:= the GPIO to be read.
+
+
+If OK returns 0 (low) or 1 (high).
+
+On failure returns a negative error code.
+
+This command will work for any claimed GPIO (even if a member of a group). For an output GPIO the value returned will be that last written to the GPIO.
+gpio_set_debounce_micros(handle, gpio, debounce_micros)
+This sets the debounce time for a GPIO.
+
+Parameters
+
+         handle:= >= 0 (as returned by gpiochip_open).
+           gpio:= the GPIO to be configured.
+debounce_micros:= the value to set.
+
+
+If OK returns 0.
+
+On failure returns a negative error code.
+
+This only affects alerts.
+
+An alert will only be issued if the edge has been stable for at least debounce microseconds.
+
+Generally this is used to debounce mechanical switches (e.g. contact bounce).
+
+Suppose that a square wave at 5 Hz is being generated on a GPIO. Each edge will last 100000 microseconds. If a debounce time of 100001 is set no alerts will be generated, If a debounce time of 99999 is set 10 alerts will be generated per second.
+
+Note that level changes will be timestamped debounce microseconds after the actual level change.
+gpio_set_watchdog_micros(handle, gpio, watchdog_micros)
+This sets the watchdog time for a GPIO.
+
+Parameters
+
+         handle:= >= 0 (as returned by gpiochip_open).
+           gpio:= the GPIO to be configured.
+watchdog_micros:= the value to set.
+
+
+If OK returns 0.
+
+On failure returns a negative error code.
+
+This only affects alerts.
+
+A watchdog alert will be sent if no edge alert has been issued for that GPIO in the previous watchdog microseconds.
+
+Note that only one watchdog alert will be sent per stream of edge alerts. The watchdog is reset by the sending of a new edge alert.
+
+The level is set to TIMEOUT (2) for a watchdog alert.
+gpio_write(handle, gpio, level)
+This sets the level of an output GPIO.
+
+Parameters
+
+handle:= >= 0 (as returned by gpiochip_open).
+  gpio:= the GPIO to be written.
+ level:= the value to write.
+
+
+If OK returns 0.
+
+On failure returns a negative error code.
+
+This command will work for any GPIO claimed as an output (even if a member of a group).
+
+If level is zero the GPIO will be set low (0). If any other value is used the GPIO will be set high (1).
+gpiochip_close(handle)
+This closes a gpiochip device.
+
+Parameters
+
+handle:= >= 0 (as returned by gpiochip_open).
+
+
+If OK returns 0.
+
+On failure returns a negative error code.
+
+Example
+
+sbc.gpiochip_close(h)
+gpiochip_open(gpiochip)
+This returns a handle to a gpiochip device.
+
+Parameters
+
+gpiochip:= >= 0
+
+
+If OK returns a handle (>= 0).
+
+On failure returns a negative error code.
+
+Example
+
+h = gpiochip_open(0) # open /dev/gpiochip0
+if h >= 0:
+   open okay
+else:
+   open error
+group_claim_input(handle, gpio, lFlags=0)
+This claims a group of GPIO for inputs.
+
+Parameters
+
+handle:= >= 0 (as returned by gpiochip_open).
+ gpios:= a list of GPIO to be claimed.
+lFlags:= line flags for the group of GPIO.
+
+
+If OK returns 0.
+
+On failure returns a negative error code.
+
+The line flags may be used to set the group as active low, open drain, open source, pull up, pull down, pull off.
+
+gpio is a list of one or more GPIO. The first GPIO in the list is called the group leader and is used to reference the group as a whole.
+group_claim_output(handle, gpio, levels=[0], lFlags=0)
+This claims a group of GPIO for outputs.
+
+Parameters
+
+handle:= >= 0 (as returned by gpiochip_open).
+  gpio:= a list of GPIO to be claimed.
+levels:= a list of the initial value for each GPIO.
+lFlags:= line flags for the group of GPIO.
+
+
+If OK returns 0.
+
+On failure returns a negative error code.
+
+The line flags may be used to set the group as active low, open drain, open source, pull up, pull down, pull off.
+
+gpio is a list of one or more GPIO. The first GPIO in the list is called the group leader and is used to reference the group as a whole.
+
+levels is a list of initialisation values for the GPIO. If a value is zero the corresponding GPIO will be initialised low (0). If any other value is used the corresponding GPIO will be initialised high (1).
+group_free(handle, gpio)
+This frees all the GPIO associated with a group.
+
+Parameters
+
+handle:= >= 0 (as returned by gpiochip_open).
+  gpio:= the group leader.
+
+
+If OK returns 0.
+
+On failure returns a negative error code.
+
+The GPIO may now be claimed by another user or for a different purpose.
+group_read(handle, gpio)
+This returns the levels read from a group.
+
+Parameters
+
+handle:= >= 0 (as returned by gpiochip_open).
+  gpio:= the group to be read.
+
+
+If OK returns a list of group size and levels.
+
+On failure returns a list of negative error code and a dummy.
+
+This command will work for an output group as well as an input group. For an output group the value returned will be that last written to the group GPIO.
+
+Note that this command will also work on an individual GPIO claimed as an input or output as that is treated as a group with one member.
+
+After a successful read levels is set as follows.
+
+Bit 0 is the level of the group leader.
+Bit 1 is the level of the second GPIO in the group.
+Bit x is the level of GPIO x+1 of the group.
+group_write(handle, gpio, group_bits, group_mask=GROUP_ALL)
+This sets the levels of an output group.
+
+Parameters
+
+    handle:= >= 0 (as returned by gpiochip_open).
+      gpio:= the group to be written.
+group_bits:= the level to set if the corresponding bit in
+             group_mask is set.
+group_mask:= a mask indicating the group GPIO to be updated.
+
+
+If OK returns 0.
+
+On failure returns a negative error code.
+
+The values of each GPIO of the group are set according to the bits
+of group_bits.
+
+Bit 0 sets the level of the group leader.
+Bit 1 sets the level of the second GPIO in the group.
+Bit x sets the level of GPIO x+1 in the group.
+
+However this may be overridden by the group_mask. A GPIO is only updated if the corresponding bit in the mask is 1.
+i2c_block_process_call(handle, reg, data)
+Writes data bytes to the specified register of the device and reads a device specified number of bytes of data in return.
+
+Parameters
+
+handle:= >= 0 (as returned by i2c_open).
+   reg:= >= 0, the device register.
+  data:= the bytes to write.
+
+
+If OK returns a list of the number of bytes read and a bytearray containing the bytes.
+
+On failure returns a list of a negative error code and a null string.
+
+The SMBus 2.0 documentation states that a minimum of 1 byte may be sent and a minimum of 1 byte may be received. The total number of bytes sent/received must be 32 or less.
+
+SMBus 2.0 5.5.8 - Block write-block read.
+S Addr Wr [A] reg [A] len(data) [A] data0 [A] ... datan [A]
+   S Addr Rd [A] [Count] A [Data] ... A P
+
+
+Example
+
+(b, d) = sbc.i2c_block_process_call(h, 10, b'\x02\x05\x00')
+
+(b, d) = sbc.i2c_block_process_call(h, 10, b'abcdr')
+
+(b, d) = sbc.i2c_block_process_call(h, 10, "abracad")
+
+(b, d) = sbc.i2c_block_process_call(h, 10, [2, 5, 16])
+i2c_close(handle)
+Closes the I2C device.
+
+Parameters
+
+handle:= >= 0 (as returned by i2c_open).
+
+
+If OK returns 0.
+
+On failure returns a negative error code.
+
+Example
+
+sbc.i2c_close(h)
+i2c_open(i2c_bus, i2c_address, i2c_flags=0)
+Returns a handle (>= 0) for the device at the I2C bus address.
+
+Parameters
+
+    i2c_bus:= >= 0.
+i2c_address:= 0-0x7F.
+  i2c_flags:= 0, no flags are currently defined.
+
+
+If OK returns a handle (>= 0).
+
+On failure returns a negative error code.
+
+For the SMBus commands the low level transactions are shown at the end of the function description. The following abbreviations are used:
+
+S     (1 bit) : Start bit
+P     (1 bit) : Stop bit
+Rd/Wr (1 bit) : Read/Write bit. Rd equals 1, Wr equals 0.
+A, NA (1 bit) : Accept and not accept bit.
+Addr  (7 bits): I2C 7 bit address.
+reg   (8 bits): Command byte, which often selects a register.
+Data  (8 bits): A data byte.
+Count (8 bits): A byte defining the length of a block operation.
+
+[..]: Data sent by the device.
+
+
+Example
+
+h = sbc.i2c_open(1, 0x53) # open device at address 0x53 on bus 1
+i2c_process_call(handle, reg, word_val)
+Writes 16 bits of data to the specified register of the device and reads 16 bits of data in return.
+
+Parameters
+
+  handle:= >= 0 (as returned by i2c_open).
+     reg:= >= 0, the device register.
+word_val:= 0-65535, the value to write.
+
+
+If OK returns the read word (0-65535).
+
+On failure returns a negative error code.
+
+SMBus 2.0 5.5.6 - Process call.
+S Addr Wr [A] reg [A] word_val_Low [A] word_val_High [A]
+   S Addr Rd [A] [DataLow] A [DataHigh] NA P
+
+
+Example
+
+r = sbc.i2c_process_call(h, 4, 0x1231)
+r = sbc.i2c_process_call(h, 6, 0)
+i2c_read_block_data(handle, reg)
+Reads a block of up to 32 bytes from the specified register of the device.
+
+Parameters
+
+handle:= >= 0 (as returned by i2c_open).
+   reg:= >= 0, the device register.
+
+
+If OK returns a list of the number of bytes read and a bytearray containing the bytes.
+
+On failure returns a list of a negative error code and a null string.
+
+The amount of returned data is set by the device.
+
+SMBus 2.0 5.5.7 - Block read.
+S Addr Wr [A] reg [A]
+   S Addr Rd [A] [Count] A [Data] A [Data] A ... A [Data] NA P
+
+
+Example
+
+(b, d) = sbc.i2c_read_block_data(h, 10)
+if b >= 0:
+   process data
+else:
+   process read failure
+i2c_read_byte(handle)
+Reads a single byte from the device.
+
+Parameters
+
+handle:= >= 0 (as returned by i2c_open).
+
+
+If OK returns the read byte (0-255).
+
+On failure returns a negative error code.
+
+SMBus 2.0 5.5.3 - Receive byte.
+S Addr Rd [A] [Data] NA P
+
+
+Example
+
+b = sbc.i2c_read_byte(2) # read a byte from handle 2
+i2c_read_byte_data(handle, reg)
+Reads a single byte from the specified register of the device.
+
+Parameters
+
+handle:= >= 0 (as returned by i2c_open).
+   reg:= >= 0, the device register.
+
+
+If OK returns the read byte (0-255).
+
+On failure returns a negative error code.
+
+SMBus 2.0 5.5.5 - Read byte.
+S Addr Wr [A] reg [A] S Addr Rd [A] [Data] NA P
+
+
+Example
+
+b = sbc.i2c_read_byte_data(2, 17)
+
+b = sbc.i2c_read_byte_data(0, 1)
+i2c_read_device(handle, count)
+Returns count bytes read from the raw device associated with handle.
+
+Parameters
+
+handle:= >= 0 (as returned by i2c_open).
+ count:= >0, the number of bytes to read.
+
+
+If OK returns a list of the number of bytes read and a bytearray containing the bytes.
+
+On failure returns a list of a negative error code and a null string.
+
+S Addr Rd [A] [Data] A [Data] A ... A [Data] NA P
+
+
+Example
+
+(count, data) = sbc.i2c_read_device(h, 12)
+i2c_read_i2c_block_data(handle, reg, count)
+Reads count bytes from the specified register of the device. The count may be 1-32.
+
+Parameters
+
+handle:= >= 0 (as returned by i2c_open).
+   reg:= >= 0, the device register.
+ count:= >0, the number of bytes to read.
+
+
+If OK returns a list of the number of bytes read and a bytearray containing the bytes.
+
+On failure returns a list of a negative error code and a null string.
+
+S Addr Wr [A] reg [A]
+   S Addr Rd [A] [Data] A [Data] A ... A [Data] NA P
+
+
+Example
+
+(b, d) = sbc.i2c_read_i2c_block_data(h, 4, 32)
+if b >= 0:
+   process data
+else:
+   process read failure
+i2c_read_word_data(handle, reg)
+Reads a single 16 bit word from the specified register of the device.
+
+Parameters
+
+handle:= >= 0 (as returned by i2c_open).
+   reg:= >= 0, the device register.
+
+
+If OK returns the read word (0-65535).
+
+On failure returns a negative error code.
+
+SMBus 2.0 5.5.5 - Read word.
+S Addr Wr [A] reg [A] S Addr Rd [A] [DataLow] A [DataHigh] NA P
+
+
+Example
+
+w = sbc.i2c_read_word_data(3, 2)
+
+w = sbc.i2c_read_word_data(2, 7)
+i2c_write_block_data(handle, reg, data)
+Writes up to 32 bytes to the specified register of the device.
+
+Parameters
+
+handle:= >= 0 (as returned by i2c_open).
+   reg:= >= 0, the device register.
+  data:= the bytes to write.
+
+
+If OK returns 0.
+
+On failure returns a negative error code.
+
+SMBus 2.0 5.5.7 - Block write.
+S Addr Wr [A] reg [A] len(data) [A] data0 [A] data1 [A] ... [A]
+   datan [A] P
+
+
+Example
+
+sbc.i2c_write_block_data(4, 5, b'hello')
+
+sbc.i2c_write_block_data(4, 5, "data bytes")
+
+sbc.i2c_write_block_data(5, 0, b'\x00\x01\x22')
+
+sbc.i2c_write_block_data(6, 2, [0, 1, 0x22])
+i2c_write_byte(handle, byte_val)
+Sends a single byte to the device.
+
+Parameters
+
+  handle:= >= 0 (as returned by i2c_open).
+byte_val:= 0-255, the value to write.
+
+
+If OK returns 0.
+
+On failure returns a negative error code.
+
+SMBus 2.0 5.5.2 - Send byte.
+S Addr Wr [A] byte_val [A] P
+
+
+Example
+
+sbc.i2c_write_byte(1, 17)   # send byte   17 to handle 1
+sbc.i2c_write_byte(2, 0x23) # send byte 0x23 to handle 2
+i2c_write_byte_data(handle, reg, byte_val)
+Writes a single byte to the specified register of the device.
+
+Parameters
+
+  handle:= >= 0 (as returned by i2c_open).
+     reg:= >= 0, the device register.
+byte_val:= 0-255, the value to write.
+
+
+If OK returns 0.
+
+On failure returns a negative error code.
+
+SMBus 2.0 5.5.4 - Write byte.
+S Addr Wr [A] reg [A] byte_val [A] P
+
+
+Example
+
+sbc.i2c_write_byte_data(1, 2, 0xC5)
+
+sbc.i2c_write_byte_data(2, 4, 9)
+i2c_write_device(handle, data)
+Writes the data bytes to the raw device.
+
+Parameters
+
+handle:= >= 0 (as returned by i2c_open).
+  data:= the bytes to write.
+
+
+If OK returns 0.
+
+On failure returns a negative error code.
+
+S Addr Wr [A] data0 [A] data1 [A] ... [A] datan [A] P
+
+
+Example
+
+sbc.i2c_write_device(h, b"\x12\x34\xA8")
+
+sbc.i2c_write_device(h, b"help")
+
+sbc.i2c_write_device(h, 'help')
+
+sbc.i2c_write_device(h, [23, 56, 231])
+i2c_write_i2c_block_data(handle, reg, data)
+Writes data bytes to the specified register of the device. 1-32 bytes may be written.
+
+Parameters
+
+handle:= >= 0 (as returned by i2c_open).
+   reg:= >= 0, the device register.
+  data:= the bytes to write.
+
+
+If OK returns 0.
+
+On failure returns a negative error code.
+
+S Addr Wr [A] reg [A] data0 [A] data1 [A] ... [A] datan [NA] P
+
+
+Example
+
+sbc.i2c_write_i2c_block_data(4, 5, 'hello')
+
+sbc.i2c_write_i2c_block_data(4, 5, b'hello')
+
+sbc.i2c_write_i2c_block_data(5, 0, b'\x00\x01\x22')
+
+sbc.i2c_write_i2c_block_data(6, 2, [0, 1, 0x22])
+i2c_write_quick(handle, bit)
+Sends a single bit to the device.
+
+Parameters
+
+handle:= >= 0 (as returned by i2c_open).
+   bit:= 0 or 1, the value to write.
+
+
+If OK returns 0.
+
+On failure returns a negative error code.
+
+SMBus 2.0 5.5.1 - Quick command.
+S Addr bit [A] P
+
+
+Example
+
+sbc.i2c_write_quick(0, 1) # send 1 to handle 0
+sbc.i2c_write_quick(3, 0) # send 0 to handle 3
+i2c_write_word_data(handle, reg, word_val)
+Writes a single 16 bit word to the specified register of the device.
+
+Parameters
+
+  handle:= >= 0 (as returned by i2c_open).
+     reg:= >= 0, the device register.
+word_val:= 0-65535, the value to write.
+
+
+If OK returns 0.
+
+On failure returns a negative error code.
+
+SMBus 2.0 5.5.4 - Write word.
+S Addr Wr [A] reg [A] word_val_Low [A] word_val_High [A] P
+
+
+Example
+
+sbc.i2c_write_word_data(4, 5, 0xA0C5)
+
+sbc.i2c_write_word_data(5, 2, 23)
+i2c_zip(handle, data)
+This function executes a sequence of I2C operations. The operations to be performed are specified by the contents of data which contains the concatenated command codes and associated data.
+
+Parameters
+
+handle:= >= 0 (as returned by i2c_open).
+  data:= the concatenated I2C commands, see below
+
+
+If OK returns a list of the number of bytes read and a bytearray containing the bytes.
+
+On failure returns a list of a negative error code and a null string.
+
+Example
+
+(count, data) = sbc.i2c_zip(h, [4, 0x53, 7, 1, 0x32, 6, 6, 0])
+
+
+The following command codes are supported:
+
+Name	Cmd & Data	Meaning
+End	0	No more commands
+Escape	1	Next P is two bytes
+Address	2 P	Set I2C address to P
+Flags	3 lsb msb	Set I2C flags to lsb + (msb << 8)
+Read	4 P	Read P bytes of data
+Write	5 P ...	Write P bytes of data
+
+
+The address, read, and write commands take a parameter P. Normally P is one byte (0-255). If the command is preceded by the Escape command then P is two bytes (0-65535, least significant byte first).
+
+The address defaults to that associated with the handle. The flags default to 0. The address and flags maintain their previous value until updated.
+
+Any read I2C data is concatenated in the returned bytearray.
+
+Example
+
+Set address 0x53, write 0x32, read 6 bytes
+Set address 0x1E, write 0x03, read 6 bytes
+Set address 0x68, write 0x1B, read 8 bytes
+End
+
+2 0x53  5 1 0x32  4 6
+2 0x1E  5 1 0x03  4 6
+2 0x68  5 1 0x1B  4 8
+0
+notify_close(handle)
+Stops notifications on a handle and frees the handle for reuse.
+
+Parameters
+
+handle:= >= 0 (as returned by notify_open)
+
+
+If OK returns 0.
+
+On failure returns a negative error code.
+
+Example
+
+h = sbc.notify_open()
+if h >= 0:
+   sbc.notify_resume(h)
+   ...
+   sbc.notify_close(h)
+   ...
+notify_open()
+Opens a notification pipe.
+
+If OK returns a handle (>= 0).
+
+On failure returns a negative error code.
+
+A notification is a method for being notified of GPIO alerts via a pipe.
+
+Pipes are only accessible from the local machine so this function serves no purpose if you are using Python from a remote machine. The in-built (socket) notifications provided by callback should be used instead.
+
+The pipes are created in the library's working directory.
+
+Notifications for handle x will be available at the pipe named .lgd-nfyx (where x is the handle number).
+
+E.g. if the function returns 15 then the notifications must be read from .lgd-nfy15.
+
+Notifications have the following structure:
+
+Q timestamp
+B chip
+B gpio
+B level
+B flags
+
+
+timestamp: the number of nanoseconds since a kernel dependent origin.
+
+Early kernels used to provide a timestamp as the number of nanoseconds since the Epoch (start of 1970). Later kernels use the number of nanoseconds since boot. It's probably best not to make any assumption as to the timestamp origin.
+
+chip: the gpiochip device number (NOT the handle).
+
+gpio: the GPIO.
+
+level: indicates the level of the GPIO (0=low, 1=high, 2=timeout).
+
+flags: no flags are currently defined.
+
+Example
+
+h = sbc.notify_open()
+if h >= 0:
+   sbc.notify_resume(h)
+notify_pause(handle)
+Pauses notifications on a handle.
+
+Parameters
+
+handle:= >= 0 (as returned by notify_open)
+
+
+If OK returns 0.
+
+On failure returns a negative error code.
+
+Notifications for the handle are suspended until notify_resume is called.
+
+Example
+
+h = sbc.notify_open()
+if h >= 0:
+   sbc.notify_resume(h)
+   ...
+   sbc.notify_pause(h)
+   ...
+   sbc.notify_resume(h)
+   ...
+notify_resume(handle)
+Resumes notifications on a handle.
+
+Parameters
+
+handle:= >= 0 (as returned by notify_open)
+
+
+If OK returns 0.
+
+On failure returns a negative error code.
+
+Example
+
+h = sbc.notify_open()
+if h >= 0:
+   sbc.notify_resume(h)
+serial_close(handle)
+Closes the serial device.
+
+Parameters
+
+handle:= >= 0 (as returned by serial_open).
+
+
+If OK returns 0.
+
+On failure returns a negative error code.
+
+Example
+
+sbc.serial_close(h1)
+serial_data_available(handle)
+Returns the number of bytes available to be read from the device.
+
+Parameters
+
+handle:= >= 0 (as returned by serial_open).
+
+
+If OK returns the count of bytes available (>= 0).
+
+On failure returns a negative error code.
+
+Example
+
+rdy = sbc.serial_data_available(h1)
+
+if rdy > 0:
+   (b, d) = sbc.serial_read(h1, rdy)
+serial_open(tty, baud, ser_flags=0)
+Returns a handle for the serial tty device opened at baud bits per second.
+
+Parameters
+
+      tty:= the serial device to open.
+     baud:= baud rate in bits per second, see below.
+ser_flags:= 0, no flags are currently defined.
+
+
+If OK returns a handle (>= 0).
+
+On failure returns a negative error code.
+
+The baud rate must be one of 50, 75, 110, 134, 150, 200, 300, 600, 1200, 1800, 2400, 4800, 9600, 19200, 38400, 57600, 115200, or 230400.
+
+Example
+
+h1 = sbc.serial_open("/dev/ttyAMA0", 300)
+
+h2 = sbc.serial_open("/dev/ttyUSB1", 19200, 0)
+
+h3 = sbc.serial_open("/dev/serial0", 9600)
+serial_read(handle, count=1000)
+Reads up to count bytes from the device.
+
+Parameters
+
+handle:= >= 0 (as returned by serial_open).
+ count:= >0, the number of bytes to read (defaults to 1000).
+
+
+If OK returns a list of the number of bytes read and a bytearray containing the bytes.
+
+On failure returns a list of negative error code and a null string.
+
+If no data is ready a bytes read of zero is returned.
+
+Example
+
+(b, d) = sbc.serial_read(h2, 100)
+if b > 0:
+   process read data
+serial_read_byte(handle)
+Returns a single byte from the device.
+
+Parameters
+
+handle:= >= 0 (as returned by serial_open).
+
+
+If OK returns the read byte (0-255).
+
+On failure returns a negative error code.
+
+Example
+
+b = sbc.serial_read_byte(h1)
+serial_write(handle, data)
+Writes the data bytes to the device.
+
+Parameters
+
+handle:= >= 0 (as returned by serial_open).
+  data:= the bytes to write.
+
+
+If OK returns 0.
+
+On failure returns a negative error code.
+
+Example
+
+sbc.serial_write(h1, b'\x02\x03\x04')
+
+sbc.serial_write(h2, b'help')
+
+sbc.serial_write(h2, "hello")
+
+sbc.serial_write(h1, [2, 3, 4])
+serial_write_byte(handle, byte_val)
+Writes a single byte to the device.
+
+Parameters
+
+  handle:= >= 0 (as returned by serial_open).
+byte_val:= 0-255, the value to write.
+
+
+If OK returns 0.
+
+On failure returns a negative error code.
+
+Example
+
+sbc.serial_write_byte(h1, 23)
+
+sbc.serial_write_byte(h1, ord('Z'))
+set_internal(config_id, config_value)
+Sets the value of a configuration item.
+
+Parameters
+
+   config_id:= the configuration item.
+config_value:= the value to set.
+
+
+If OK returns 0.
+
+On failure returns a negative error code.
+
+Example
+
+sbc.set_internal(0, 255)
+cfg = sbc.get_internal()
+print(cfg)
+spi_close(handle)
+Closes the SPI device.
+
+Parameters
+
+handle:= >= 0 (as returned by spi_open).
+
+
+If OK returns 0.
+
+On failure returns a negative error code.
+
+Example
+
+sbc.spi_close(h)
+spi_open(spi_device, spi_channel, baud, spi_flags=0)
+Returns a handle for the SPI device on the channel. Data will be transferred at baud bits per second. The flags may be used to modify the default behaviour.
+
+Parameters
+
+ spi_device:= >= 0.
+spi_channel:= >= 0.
+       baud:= speed to use.
+  spi_flags:= see below.
+
+
+If OK returns a handle (>= 0).
+
+On failure returns a negative error code.
+
+spi_flags consists of the least significant 2 bits.
+
+1  0
+m  m
+
+
+mm defines the SPI mode.
+
+Mode POL PHA
+ 0    0   0
+ 1    0   1
+ 2    1   0
+ 3    1   1
+
+
+The other bits in flags should be set to zero.
+
+Example
+
+h = sbc.spi_open(1, 50000, 3)
+spi_read(handle, count)
+Reads count bytes from the SPI device.
+
+Parameters
+
+handle:= >= 0 (as returned by spi_open).
+ count:= >0, the number of bytes to read.
+
+
+If OK returns a list of the number of bytes read and a bytearray containing the bytes.
+
+On failure returns a list of negative error code and a null string.
+
+Example
+
+(b, d) = sbc.spi_read(h, 60) # read 60 bytes from handle h
+if b == 60:
+   process read data
+else:
+   error path
+spi_write(handle, data)
+Writes the data bytes to the SPI device.
+
+Parameters
+
+handle:= >= 0 (as returned by spi_open).
+  data:= the bytes to write.
+
+
+If OK returns 0.
+
+On failure returns a negative error code.
+
+Example
+
+sbc.spi_write(0, b'\x02\xc0\x80') # write 3 bytes to handle 0
+
+sbc.spi_write(0, b'defgh')        # write 5 bytes to handle 0
+
+sbc.spi_write(0, "def")           # write 3 bytes to handle 0
+
+sbc.spi_write(1, [2, 192, 128])   # write 3 bytes to handle 1
+spi_xfer(handle, data)
+Writes the data bytes to the SPI device, returning the data bytes read from the device.
+
+Parameters
+
+handle:= >= 0 (as returned by spi_open).
+  data:= the bytes to write.
+
+
+If OK returns a list of the number of bytes read and a bytearray containing the bytes.
+
+On failure returns a list of negative error code and a null string.
+
+Example
+
+(count, rx_data) = sbc.spi_xfer(h, b'\x01\x80\x00')
+
+(count, rx_data) = sbc.spi_xfer(h, [1, 128, 0])
+
+(count, rx_data) = sbc.spi_xfer(h, b"hello")
+
+(count, rx_data) = sbc.spi_xfer(h, "hello")
+tx_busy(handle, gpio, kind)
+This returns true if transmissions of the specified kind are active on the GPIO or group.
+
+Parameters
+
+handle:= >= 0 (as returned by gpiochip_open).
+  gpio:= the GPIO or group to be checked.
+  kind:= TX_PWM or TX_WAVE.
+
+
+If OK returns 1 for busy and 0 for not busy.
+
+On failure returns a negative error code.
+tx_pulse(handle, gpio, pulse_on, pulse_off, pulse_offset=0, pulse_cycles=0)
+This starts software timed pulses on an output GPIO.
+
+Parameters
+
+      handle:= >= 0 (as returned by gpiochip_open).
+        gpio:= the GPIO to be pulsed.
+    pulse_on:= pulse high time in microseconds.
+   pulse_off:= pulse low time in microsseconds.
+pulse_offset:= offset from nominal pulse start position.
+pulse_cycles:= the number of cycles to be sent, 0 for infinite.
+
+
+If OK returns the number of entries left in the PWM queue for the GPIO.
+
+On failure returns a negative error code.
+
+If both pulse_on and pulse_off are zero pulses will be switched off for that GPIO. The active pulse, if any, will be stopped and any queued pulses will be deleted.
+
+Each successful call to this function consumes one PWM queue entry.
+
+pulse_cycles cycles are transmitted (0 means infinite). Each cycle consists of pulse_on microseconds of GPIO high followed by pulse_off microseconds of GPIO low.
+
+PWM is characterised by two values, its frequency (number of cycles per second) and its dutycycle (percentage of high time per cycle).
+
+The set frequency will be 1000000 / (pulse_on + pulse_off) Hz.
+
+The set dutycycle will be pulse_on / (pulse_on + pulse_off) * 100 %.
+
+E.g. if pulse_on is 50 and pulse_off is 100 the frequency will be 6666.67 Hz and the dutycycle will be 33.33 %.
+
+pulse_offset is a microsecond offset from the natural start of the pulse cycle.
+
+For instance if the PWM frequency is 10 Hz the natural start of each cycle is at seconds 0, then 0.1, 0.2, 0.3 etc. In this case if the offset is 20000 microseconds the cycle will start at seconds 0.02, 0.12, 0.22, 0.32 etc.
+
+Another pulse command may be issued to the GPIO before the last has finished.
+
+If the last pulse had infinite cycles (pulse_cycles of 0) then it will be replaced by the new settings at the end of the current cycle. Otherwise it will be replaced by the new settings at the end of pulse_cycles cycles.
+
+Multiple pulse settings may be queued in this way.
+tx_pwm(handle, gpio, pwm_frequency, pwm_duty_cycle, pulse_offset=0, pulse_cycles=0)
+This starts software timed PWM on an output GPIO.
+
+Parameters
+
+         handle:= >= 0 (as returned by gpiochip_open).
+           gpio:= the GPIO to be pulsed.
+  pwm_frequency:= PWM frequency in Hz (0=off, 0.1-10000).
+ pwm_duty_cycle:= PWM duty cycle in % (0-100).
+  pulse_offset:= offset from nominal pulse start position.
+  pulse_cycles:= the number of cycles to be sent, 0 for infinite.
+
+
+If OK returns the number of entries left in the PWM queue for the GPIO.
+
+On failure returns a negative error code.
+
+Each successful call to this function consumes one PWM queue entry.
+
+pulse_cycles cycles are transmitted (0 means infinite).
+
+PWM is characterised by two values, its frequency (number of cycles per second) and its dutycycle (percentage of high time per cycle).
+
+pulse_offset is a microsecond offset from the natural start of the pulse cycle.
+
+For instance if the PWM frequency is 10 Hz the natural start of each cycle is at seconds 0, then 0.1, 0.2, 0.3 etc. In this case if the offset is 20000 microseconds the cycle will start at seconds 0.02, 0.12, 0.22, 0.32 etc.
+
+Another PWM command may be issued to the GPIO before the last has finished.
+
+If the last pulse had infinite cycles then it will be replaced by the new settings at the end of the current cycle. Otherwise it will be replaced by the new settings when all its cycles are complete.
+
+Multiple pulse settings may be queued in this way.
+tx_room(handle, gpio, kind)
+This returns the number of slots there are to queue further transmissions of the specified kind on a GPIO or group.
+
+Parameters
+
+handle:= >= 0 (as returned by gpiochip_open).
+  gpio:= the GPIO or group to be checked.
+  kind:= TX_PWM or TX_WAVE.
+
+
+If OK returns the number of free entries (0 for none).
+
+On failure returns a negative error code.
+tx_servo(handle, gpio, pulse_width, servo_frequency=50, pulse_offset=0, pulse_cycles=0)
+This starts software timed servo pulses on an output GPIO.
+
+I would only use software timed servo pulses for testing purposes. The timing jitter will cause the servo to fidget. This may cause it to overheat and wear out prematurely.
+
+Parameters
+
+         handle:= >= 0 (as returned by gpiochip_open).
+           gpio:= the GPIO to be pulsed.
+    pulse_width:= pulse high time in microseconds (0=off, 500-2500).
+servo_frequency:= the number of pulses per second (40-500).
+   pulse_offset:= offset from nominal pulse start position.
+   pulse_cycles:= the number of cycles to be sent, 0 for infinite.
+
+
+If OK returns the number of entries left in the PWM queue for the GPIO.
+
+On failure returns a negative error code.
+
+Each successful call to this function consumes one PWM queue entry.
+
+pulse_cycles cycles are transmitted (0 means infinite).
+
+pulse_offset is a microsecond offset from the natural start of the pulse cycle.
+
+Another servo command may be issued to the GPIO before the last has finished.
+
+If the last pulse had infinite cycles then it will be replaced by the new settings at the end of the current cycle. Otherwise it will be replaced by the new settings when all its cycles are compete.
+
+Multiple servo settings may be queued in this way.
+tx_wave(handle, gpio, pulses)
+This starts a software timed wave on an output group.
+
+Parameters
+
+handle:= >= 0 (as returned by gpiochip_open).
+  gpio:= the group to be pulsed.
+pulses:= the pulses to transmit.
+
+
+If OK returns the number of entries left in the wave queue for the group.
+
+On failure returns a negative error code.
+
+Each successful call to this function consumes one wave queue entry.
+
+This command starts a wave of pulses.
+
+pulses is an array of pulses to be transmitted on the group.
+
+Each pulse is defined by the following triplet:
+
+bits: the levels to set for the selected GPIO
+mask: the GPIO to select
+delay: the delay in microseconds before the next pulse
+
+Another wave command may be issued to the group before the last has finished transmission. The new wave will start when the previous wave has competed.
+
+Multiple waves may be queued in this way.
+u2i(uint32)
+Converts a 32 bit unsigned number to signed.
+
+Parameters
+
+uint32:= an unsigned 32 bit number
+
+
+Returns a signed number.
+
+Example
+
+print(u2i(4294967272))
+-24
+print(u2i(37))
+37
+PARAMETERS
+baud:
+The speed of serial communication (I2C, SPI, serial link) in bits per second.
+
+bit: 0-1
+A value of 0 or 1.
+
+byte_val: 0-255
+A whole number.
+
+config_id:
+A number identifying a configuration item.
+
+CFG_ID_DEBUG_LEVEL 0
+CFG_ID_MIN_DELAY   1
+
+
+config_value:
+The value of a configurtion item.
+
+count:
+The number of bytes of data to be transferred.
+
+data:
+Data to be transmitted, a series of bytes.
+
+debounce_micros:
+The debounce time in microseconds.
+
+edge:
+RISING_EDGE
+FALLING_EDGE
+BOTH_EDGES
+
+
+eFlags:
+Alert request flags for the GPIO.
+
+The following values may be or'd to form the value.
+
+RISING_EDGE
+FALLING_EDGE
+BOTH_EDGES
+
+
+errnum: <0
+Indicates an error. Use lgpio.error_text for the error text.
+
+func:
+A user supplied callback function.
+
+gpio:
+The 0 based offset of a GPIO from the start of a gpiochip.
+
+gpiochip: >= 0
+The number of a gpiochip device.
+
+group_bits:
+A 64-bit value used to set the levels of a group.
+
+Set bit x to set GPIO x of the group high.
+
+Clear bit x to set GPIO x of the group low.
+
+group_mask:
+A 64-bit value used to determine which members of a group should be updated.
+
+Set bit x to update GPIO x of the group.
+
+Clear bit x to leave GPIO x of the group unaltered.
+
+handle: >= 0
+A number referencing an object opened by one of the following
+
+gpiochip_open
+i2c_open
+notify_open
+serial_open
+spi_open
+
+i2c_address: 0-0x7F
+The address of a device on the I2C bus.
+
+i2c_bus: >= 0
+An I2C bus number.
+
+i2c_flags: 0
+No I2C flags are currently defined.
+
+kind: TX_PWM or TX_WAVE
+A type of transmission.
+
+level: 0 or 1
+A GPIO level.
+
+levels:
+A list of GPIO levels.
+
+lFlags:
+Line modifiers for the GPIO.
+
+The following values may be or'd to form the value.
+
+SET_ACTIVE_LOW
+SET_OPEN_DRAIN
+SET_OPEN_SOURCE
+SET_PULL_UP
+SET_PULL_DOWN
+SET_PULL_NONE
+
+
+notify_handle:
+This associates a notification with a GPIO alert.
+
+pulse_cycles: >= 0
+The number of pulses to generate. A value of 0 means infinite.
+
+pulse_delay:
+The delay in microseconds before the next wave pulse.
+
+pulse_off: >= 0
+The off period for a pulse in microseconds.
+
+pulse_offset: >= 0
+The offset in microseconds from the nominal pulse start.
+
+pulse_on: >= 0
+The on period for a pulse in microseconds.
+
+pulse_width: 0, 500-2500 microseconds
+Servo pulse width
+
+pulses:
+pulses is a list of pulse objects. A pulse object is a container class with the following members.
+
+group_bits - the levels to set if the corresponding bit in group_mask is set.
+group_mask - a mask indicating the group GPIO to be updated.
+pulse_delay - the delay in microseconds before the next pulse.
+
+pwm_duty_cycle: 0-100 %
+PWM duty cycle %
+
+pwm_frequency: 0.1-10000 Hz
+PWM frequency
+
+reg: 0-255
+An I2C device register. The usable registers depend on the actual device.
+
+ser_flags: 32 bit
+No serial flags are currently defined.
+
+servo_frequency: : 40-500 Hz
+Servo pulse frequency
+
+spi_channel: >= 0
+A SPI channel.
+
+spi_device: >= 0
+A SPI device.
+
+spi_flags: 32 bit
+See spi_open.
+
+tty:
+A serial device, e.g. /dev/ttyAMA0, /dev/ttyUSB0
+
+uint32:
+An unsigned 32 bit number.
+
+watchdog_micros:
+The watchdog time in microseconds.
+
+word_val: 0-65535
+A whole number.
