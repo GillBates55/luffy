@@ -11,7 +11,7 @@ from pathlib import Path
 import logging
 import io
 from mutagen import File as MutagenFile
-from datetime import datetime, timezone
+import random
 
 # Set up logging
 logging.basicConfig(
@@ -29,7 +29,6 @@ class AudioPlayer:
         # VLC Instance and Player Setup
         self.instance = vlc.Instance('--no-xlib')  # Headless mode for Raspberry Pi
         self.player = self.instance.media_player_new()
-        self.current_track_index = 0
         self.is_playing = False
         self.volume = 50  # Default volume (0-100)
         self.audio_files = []
@@ -48,8 +47,8 @@ class AudioPlayer:
         
         # Try to load fonts with different sizes
         try:
-            self.font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16)
-            self.small_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
+            self.font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 18)
+            self.small_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 14)
         except Exception:
             logger.warning("Default font not found, using default bitmap font")
             self.font = ImageFont.load_default()
@@ -111,10 +110,6 @@ class AudioPlayer:
         
         return None
 
-    def get_current_datetime_utc(self):
-        """Get the current date and time in UTC"""
-        return datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
-
     def update_display(self):
         """Update the LCD display with current track and status"""
         try:
@@ -130,41 +125,26 @@ class AudioPlayer:
             # Create a new drawing context
             self.draw = ImageDraw.Draw(self.image)
             
-            # Draw UTC time and username at the top
-            current_time = self.get_current_datetime_utc()
-            self.draw.text(
-                (5, 2),
-                f"UTC: {current_time}",
-                font=self.small_font,
-                fill=(200, 200, 200)
-            )
-            self.draw.text(
-                (5, 16),
-                f"User: {os.getenv('USER', 'GillBates55')}",
-                font=self.small_font,
-                fill=(200, 200, 200)
-            )
-            
             # Get current track name
             current_file = Path(self.audio_files[self.current_track_index]).name
             
-            # Draw track name (adjusted position to accommodate datetime)
+            # Draw track information
             self.draw.text(
-                (10, 40),
-                "Media Player:",
+                (10, 20),
+                "Now Playing:",
                 font=self.font,
                 fill=(255, 255, 255)
             )
             self.draw.text(
-                (10, 60),
+                (10, 45),
                 current_file,
                 font=self.font,
                 fill=(0, 255, 0) if self.is_playing else (255, 0, 0)
             )
             
-            # Draw volume and time (adjusted positions)
+            # Draw volume information
             self.draw.text(
-                (10, 90),
+                (10, 85),
                 f"Volume: {self.volume}%",
                 font=self.font,
                 fill=(255, 255, 255)
@@ -176,13 +156,13 @@ class AudioPlayer:
                 length = self.player.get_length() / 1000  # Convert to seconds
                 current_time = length * position if position else 0
                 self.draw.text(
-                    (10, 110),
+                    (10, 120),
                     f"Time: {int(current_time)}s / {int(length)}s",
                     font=self.font,
                     fill=(255, 255, 255)
                 )
             
-            # Draw controls legend (adjusted positions)
+            # Draw controls legend
             controls = [
                 "A: Play/Pause",
                 "B: Next Track",
@@ -191,9 +171,9 @@ class AudioPlayer:
             ]
             for i, control in enumerate(controls):
                 self.draw.text(
-                    (10, 150 + i * 20),
+                    (10, 160 + i * 20),
                     control,
-                    font=self.font,
+                    font=self.small_font,
                     fill=(200, 200, 200)
                 )
             
@@ -238,6 +218,9 @@ class AudioPlayer:
             if not self.audio_files:
                 logger.error("No audio files found in audio_library")
                 sys.exit(1)
+            
+            # Set random initial track
+            self.current_track_index = random.randint(0, len(self.audio_files) - 1)
                 
             logger.info(f"Loaded {len(self.audio_files)} audio files")
         except Exception as e:
