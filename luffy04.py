@@ -4,11 +4,14 @@ import sys
 import signal
 import time
 import vlc
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 import RPi.GPIO as GPIO
 from st7789 import ST7789
 from pathlib import Path
 import logging
+import io
+from mutagen import File as MutagenFile
+from datetime import datetime, timezone
 
 # Set up logging
 logging.basicConfig(
@@ -43,17 +46,162 @@ class AudioPlayer:
         self.image = Image.new("RGB", (240, 240))
         self.draw = ImageDraw.Draw(self.image)
         
-        # Try to load a font, fallback to default if not found
+        # Try to load fonts with different sizes
         try:
             self.font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16)
+            self.small_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
         except Exception:
             logger.warning("Default font not found, using default bitmap font")
             self.font = ImageFont.load_default()
+            self.small_font = ImageFont.load_default()
         
         # Initialize the system
         self.setup_gpio()
         self.load_audio_files()
         
+    def get_album_art(self, audio_file):
+        """Extract album art from audio file metadata"""
+        try:
+            audio = MutagenFile(audio_file)
+            if audio is None:
+                return None
+
+            # Handle different metadata formats
+            art = None
+            
+            # MP3 (ID3)
+            if hasattr(audio, 'tags'):
+                for tag in audio.tags.values():
+                    if tag.FrameID in ('APIC', 'PIC'):
+                        art = tag.data
+                        break
+            
+            # MP4/M4A
+            elif 'covr' in audio:
+                art = audio['covr'][0]
+            
+            # FLAC
+            elif hasattr(audio, 'pictures'):
+                if audio.pictures:
+                    art = audio.pictures[0].data
+
+            if art:
+                # Convert binary data to PIL Image
+                img = Image.open(io.BytesIO(art))
+                
+                # Resize to fit display while maintaining aspect ratio
+                img = ImageOps.contain(img, (240, 240))
+                
+                # Create new image with black background
+                background = Image.new('RGB', (240, 240), (0, 0, 0))
+                
+                # Calculate position to center the resized image
+                pos = ((240 - img.width) // 2, (240 - img.height) // 2)
+                
+                # Paste the resized image onto the background
+                background.paste(img, pos)
+                
+                # Reduce opacity for better text visibility
+                background = background.point(lambda p: p * 0.3)
+                
+                return background
+                
+        except Exception as e:
+            logger.error(f"Error extracting album art: {e}")
+        
+        return None
+
+    def get_current_datetime_utc(self):
+        """Get the current date and time in UTC"""
+        return datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+
+    def update_display(self):
+        """Update the LCD display with current track and status"""
+        try:
+            # Create a new base image
+            self.image = Image.new("RGB", (240, 240), (0, 0, 0))
+            
+            # Try to get and apply album art as background
+            if self.audio_files:
+                album_art = self.get_album_art(self.audio_files[self.current_track_index])
+                if album_art:
+                    self.image = album_art
+            
+            # Create a new drawing context
+            self.draw = ImageDraw.Draw(self.image)
+            
+            # Draw UTC time and username at the top
+            current_time = self.get_current_datetime_utc()
+            self.draw.text(
+                (5, 2),
+                f"UTC: {current_time}",
+                font=self.small_font,
+                fill=(200, 200, 200)
+            )
+            self.draw.text(
+                (5, 16),
+                f"User: {os.getenv('USER', 'GillBates55')}",
+                font=self.small_font,
+                fill=(200, 200, 200)
+            )
+            
+            # Get current track name
+            current_file = Path(self.audio_files[self.current_track_index]).name
+            
+            # Draw track name (adjusted position to accommodate datetime)
+            self.draw.text(
+                (10, 40),
+                "Media Player:",
+                font=self.font,
+                fill=(255, 255, 255)
+            )
+            self.draw.text(
+                (10, 60),
+                current_file,
+                font=self.font,
+                fill=(0, 255, 0) if self.is_playing else (255, 0, 0)
+            )
+            
+            # Draw volume and time (adjusted positions)
+            self.draw.text(
+                (10, 90),
+                f"Volume: {self.volume}%",
+                font=self.font,
+                fill=(255, 255, 255)
+            )
+            
+            # Draw playback position if playing
+            if self.is_playing and self.player.get_media():
+                position = self.player.get_position()
+                length = self.player.get_length() / 1000  # Convert to seconds
+                current_time = length * position if position else 0
+                self.draw.text(
+                    (10, 110),
+                    f"Time: {int(current_time)}s / {int(length)}s",
+                    font=self.font,
+                    fill=(255, 255, 255)
+                )
+            
+            # Draw controls legend (adjusted positions)
+            controls = [
+                "A: Play/Pause",
+                "B: Next Track",
+                "X: Vol Down",
+                "Y: Vol Up"
+            ]
+            for i, control in enumerate(controls):
+                self.draw.text(
+                    (10, 150 + i * 20),
+                    control,
+                    font=self.font,
+                    fill=(200, 200, 200)
+                )
+            
+            # Update display
+            self.display.display(self.image)
+        except Exception as e:
+            logger.error(f"Error updating display: {e}")
+
     def setup_gpio(self):
         """Initialize GPIO settings and button handlers"""
         try:
@@ -173,69 +321,6 @@ class AudioPlayer:
             logger.info(f"Volume adjusted to {self.volume}%")
         except Exception as e:
             logger.error(f"Error adjusting volume: {e}")
-
-    def update_display(self):
-        """Update the LCD display with current track and status"""
-        try:
-            # Clear display
-            self.draw.rectangle((0, 0, 240, 240), (0, 0, 0))
-            
-            # Get current track name
-            current_file = Path(self.audio_files[self.current_track_index]).name
-            
-            # Draw track name
-            self.draw.text(
-                (10, 10),
-                "Media Player:",
-                font=self.font,
-                fill=(255, 255, 255)
-            )
-            self.draw.text(
-                (10, 30),
-                current_file,
-                font=self.font,
-                fill=(0, 255, 0) if self.is_playing else (255, 0, 0)
-            )
-            
-            # Draw volume and time
-            self.draw.text(
-                (10, 60),
-                f"Volume: {self.volume}%",
-                font=self.font,
-                fill=(255, 255, 255)
-            )
-            
-            # Draw playback position if playing
-            if self.is_playing and self.player.get_media():
-                position = self.player.get_position()
-                length = self.player.get_length() / 1000  # Convert to seconds
-                current_time = length * position if position else 0
-                self.draw.text(
-                    (10, 80),
-                    f"Time: {int(current_time)}s / {int(length)}s",
-                    font=self.font,
-                    fill=(255, 255, 255)
-                )
-            
-            # Draw controls legend
-            controls = [
-                "A: Play/Pause",
-                "B: Next Track",
-                "X: Vol Down",
-                "Y: Vol Up"
-            ]
-            for i, control in enumerate(controls):
-                self.draw.text(
-                    (10, 120 + i * 20),
-                    control,
-                    font=self.font,
-                    fill=(200, 200, 200)
-                )
-            
-            # Update display
-            self.display.display(self.image)
-        except Exception as e:
-            logger.error(f"Error updating display: {e}")
 
     def cleanup(self):
         """Clean up resources on exit"""
