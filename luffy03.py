@@ -2,12 +2,11 @@
 import os
 import sys
 import signal
-import subprocess
 import time
-from colorsys import hsv_to_rgb
+import vlc
 from PIL import Image, ImageDraw, ImageFont
 import RPi.GPIO as GPIO
-from ST7789 import ST7789
+from st7789 import ST7789
 from pathlib import Path
 import logging
 
@@ -24,11 +23,12 @@ class AudioPlayer:
         self.BUTTONS = [5, 6, 16, 24]  # A, B, X, Y
         self.LABELS = ['A', 'B', 'X', 'Y']
         
-        # Audio Control Variables
+        # VLC Instance and Player Setup
+        self.instance = vlc.Instance('--no-xlib')  # Headless mode for Raspberry Pi
+        self.player = self.instance.media_player_new()
         self.current_track_index = 0
         self.is_playing = False
         self.volume = 50  # Default volume (0-100)
-        self.audio_process = None
         self.audio_files = []
         
         # Display Configuration
@@ -80,10 +80,12 @@ class AudioPlayer:
                 logger.error("audio_library directory not found")
                 sys.exit(1)
                 
-            # Support both WAV and MP3 files
-            self.audio_files = sorted([
-                str(f) for f in audio_dir.glob("*.[mwMW][aApP][vV3]*")
-            ])
+            # Support multiple audio formats
+            extensions = ('[mM][pP]3', '[wW][aA][vV]', '[mM]4[aA]', '[aA][aA][cC]')
+            self.audio_files = []
+            
+            for ext in extensions:
+                self.audio_files.extend(sorted(str(f) for f in audio_dir.glob(f"*.{ext}")))
             
             if not self.audio_files:
                 logger.error("No audio files found in audio_library")
@@ -111,68 +113,62 @@ class AudioPlayer:
         except Exception as e:
             logger.error(f"Error handling button press: {e}")
 
-    def get_player_command(self, file_path):
-        """Determine the appropriate player command based on file extension"""
-        ext = file_path.lower().split('.')[-1]
-        if ext == 'mp3':
-            return ['mpg123', '-a', 'default', '--scale', str(self.volume), file_path]
-        else:  # wav files
-            return ['aplay', '-D', 'default', file_path]
-
     def toggle_playback(self):
         """Toggle between play and pause states"""
-        if self.is_playing:
-            self.stop_playback()
-        else:
+        if not self.player.get_media():
             self.start_playback()
+        else:
+            if self.is_playing:
+                self.player.pause()
+                self.is_playing = False
+            else:
+                self.player.play()
+                self.is_playing = True
+            self.update_display()
 
     def start_playback(self):
         """Start playing the current track"""
         try:
-            if self.audio_process:
-                self.stop_playback()
-                
             current_file = self.audio_files[self.current_track_index]
-            command = self.get_player_command(current_file)
-            
-            self.audio_process = subprocess.Popen(
-                command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
+            media = self.instance.media_new(current_file)
+            self.player.set_media(media)
+            self.player.audio_set_volume(self.volume)
+            self.player.play()
             self.is_playing = True
             self.update_display()
             logger.info(f"Started playing: {current_file}")
+            
+            # Set up end-of-media callback
+            events = self.player.event_manager()
+            events.event_attach(vlc.EventType.MediaPlayerEndReached, self.on_media_end)
         except Exception as e:
             logger.error(f"Error starting playback: {e}")
 
+    def on_media_end(self, event):
+        """Callback for when media playback ends"""
+        self.next_track()
+
     def stop_playback(self):
         """Stop the current playback"""
-        if self.audio_process:
-            self.audio_process.terminate()
-            self.audio_process = None
-            self.is_playing = False
-            self.update_display()
-            logger.info("Playback stopped")
+        self.player.stop()
+        self.is_playing = False
+        self.update_display()
+        logger.info("Playback stopped")
 
     def next_track(self):
         """Switch to the next track"""
         self.current_track_index = (self.current_track_index + 1) % len(self.audio_files)
         if self.is_playing:
             self.start_playback()
-        self.update_display()
+        else:
+            self.update_display()
         logger.info(f"Switched to track: {self.audio_files[self.current_track_index]}")
 
     def adjust_volume(self, delta):
-        """Adjust the system volume"""
+        """Adjust the playback volume"""
         try:
             self.volume = max(0, min(100, self.volume + delta))
-            subprocess.run(['amixer', 'set', 'Master', f'{self.volume}%'])
-            
-            # If currently playing, restart with new volume for MP3
-            if self.is_playing and self.audio_files[self.current_track_index].lower().endswith('.mp3'):
-                self.start_playback()
-                
+            self.player.audio_set_volume(self.volume)
             self.update_display()
             logger.info(f"Volume adjusted to {self.volume}%")
         except Exception as e:
@@ -190,7 +186,7 @@ class AudioPlayer:
             # Draw track name
             self.draw.text(
                 (10, 10),
-                f"Now Playing:",
+                "Media Player:",
                 font=self.font,
                 fill=(255, 255, 255)
             )
@@ -201,13 +197,25 @@ class AudioPlayer:
                 fill=(0, 255, 0) if self.is_playing else (255, 0, 0)
             )
             
-            # Draw volume
+            # Draw volume and time
             self.draw.text(
                 (10, 60),
                 f"Volume: {self.volume}%",
                 font=self.font,
                 fill=(255, 255, 255)
             )
+            
+            # Draw playback position if playing
+            if self.is_playing and self.player.get_media():
+                position = self.player.get_position()
+                length = self.player.get_length() / 1000  # Convert to seconds
+                current_time = length * position if position else 0
+                self.draw.text(
+                    (10, 80),
+                    f"Time: {int(current_time)}s / {int(length)}s",
+                    font=self.font,
+                    fill=(255, 255, 255)
+                )
             
             # Draw controls legend
             controls = [
@@ -218,7 +226,7 @@ class AudioPlayer:
             ]
             for i, control in enumerate(controls):
                 self.draw.text(
-                    (10, 100 + i * 20),
+                    (10, 120 + i * 20),
                     control,
                     font=self.font,
                     fill=(200, 200, 200)
@@ -232,6 +240,8 @@ class AudioPlayer:
     def cleanup(self):
         """Clean up resources on exit"""
         self.stop_playback()
+        self.player.release()
+        self.instance.release()
         GPIO.cleanup()
         logger.info("Cleanup completed")
 
@@ -240,8 +250,6 @@ class AudioPlayer:
         try:
             logger.info("Starting audio player")
             self.update_display()
-            # Start playing the first track
-            self.start_playback()
             
             # Keep the script running
             signal.pause()
