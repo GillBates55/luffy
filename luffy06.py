@@ -12,6 +12,8 @@ import logging
 import io
 from mutagen import File as MutagenFile
 import random
+import threading
+from queue import Queue
 
 # Set up logging
 logging.basicConfig(
@@ -26,12 +28,18 @@ class AudioPlayer:
         self.BUTTONS = [5, 6, 16, 24]  # A, B, X, Y
         self.LABELS = ['A', 'B', 'X', 'Y']
         
+        # Threading and State Management
+        self.event_queue = Queue()
+        self.lock = threading.Lock()
+        self.running = True
+        
         # VLC Instance and Player Setup
         self.instance = vlc.Instance('--no-xlib')  # Headless mode for Raspberry Pi
         self.player = self.instance.media_player_new()
         self.is_playing = False
         self.volume = 50  # Default volume (0-100)
         self.audio_files = []
+        self.current_media = None
         
         # Display Configuration
         self.display = ST7789(
@@ -58,6 +66,23 @@ class AudioPlayer:
         self.setup_gpio()
         self.load_audio_files()
         
+        # Start event handling thread
+        self.event_thread = threading.Thread(target=self.event_handler, daemon=True)
+        self.event_thread.start()
+
+    def event_handler(self):
+        """Handle events in a separate thread"""
+        while self.running:
+            try:
+                event_type = self.event_queue.get(timeout=1.0)
+                if event_type == "MEDIA_END":
+                    with self.lock:
+                        self.next_track()
+                elif event_type == "UPDATE_DISPLAY":
+                    self.update_display()
+            except Exception:
+                continue
+
     def get_album_art(self, audio_file):
         """Extract album art from audio file metadata"""
         try:
@@ -65,7 +90,6 @@ class AudioPlayer:
             if audio is None:
                 return None
 
-            # Handle different metadata formats
             art = None
             
             # MP3 (ID3)
@@ -85,24 +109,12 @@ class AudioPlayer:
                     art = audio.pictures[0].data
 
             if art:
-                # Convert binary data to PIL Image
                 img = Image.open(io.BytesIO(art))
-                
-                # Resize to fit display while maintaining aspect ratio
                 img = ImageOps.contain(img, (240, 240))
-                
-                # Create new image with black background
                 background = Image.new('RGB', (240, 240), (0, 0, 0))
-                
-                # Calculate position to center the resized image
                 pos = ((240 - img.width) // 2, (240 - img.height) // 2)
-                
-                # Paste the resized image onto the background
                 background.paste(img, pos)
-                
-                # Reduce opacity for better text visibility
                 background = background.point(lambda p: p * 0.3)
-                
                 return background
                 
         except Exception as e:
@@ -122,13 +134,10 @@ class AudioPlayer:
                 if album_art:
                     self.image = album_art
             
-            # Create a new drawing context
             self.draw = ImageDraw.Draw(self.image)
             
-            # Get current track name
             current_file = Path(self.audio_files[self.current_track_index]).name
             
-            # Draw track information
             self.draw.text(
                 (10, 20),
                 "Now Playing:",
@@ -142,7 +151,6 @@ class AudioPlayer:
                 fill=(0, 255, 0) if self.is_playing else (255, 0, 0)
             )
             
-            # Draw volume information
             self.draw.text(
                 (10, 85),
                 f"Volume: {self.volume}%",
@@ -150,10 +158,9 @@ class AudioPlayer:
                 fill=(255, 255, 255)
             )
             
-            # Draw playback position if playing
             if self.is_playing and self.player.get_media():
                 position = self.player.get_position()
-                length = self.player.get_length() / 1000  # Convert to seconds
+                length = self.player.get_length() / 1000
                 current_time = length * position if position else 0
                 self.draw.text(
                     (10, 120),
@@ -162,7 +169,6 @@ class AudioPlayer:
                     fill=(255, 255, 255)
                 )
             
-            # Draw controls legend
             controls = [
                 "A: Play/Pause",
                 "B: Next Track",
@@ -177,7 +183,6 @@ class AudioPlayer:
                     fill=(200, 200, 200)
                 )
             
-            # Update display
             self.display.display(self.image)
         except Exception as e:
             logger.error(f"Error updating display: {e}")
@@ -188,7 +193,6 @@ class AudioPlayer:
             GPIO.setmode(GPIO.BCM)
             GPIO.setup(self.BUTTONS, GPIO.IN, pull_up_down=GPIO.PUD_UP)
             
-            # Attach handlers for each button
             for pin in self.BUTTONS:
                 GPIO.add_event_detect(
                     pin,
@@ -208,7 +212,6 @@ class AudioPlayer:
                 logger.error("audio_library directory not found")
                 sys.exit(1)
                 
-            # Support multiple audio formats
             extensions = ('[mM][pP]3', '[wW][aA][vV]', '[mM]4[aA]', '[aA][aA][cC]')
             self.audio_files = []
             
@@ -219,9 +222,7 @@ class AudioPlayer:
                 logger.error("No audio files found in audio_library")
                 sys.exit(1)
             
-            # Set random initial track
             self.current_track_index = random.randint(0, len(self.audio_files) - 1)
-                
             logger.info(f"Loaded {len(self.audio_files)} audio files")
         except Exception as e:
             logger.error(f"Error loading audio files: {e}")
@@ -233,14 +234,15 @@ class AudioPlayer:
         logger.debug(f"Button {label} pressed")
         
         try:
-            if label == 'A':  # Play/Pause
-                self.toggle_playback()
-            elif label == 'B':  # Next Track
-                self.next_track()
-            elif label == 'X':  # Volume Down
-                self.adjust_volume(-5)
-            elif label == 'Y':  # Volume Up
-                self.adjust_volume(5)
+            with self.lock:
+                if label == 'A':  # Play/Pause
+                    self.toggle_playback()
+                elif label == 'B':  # Next Track
+                    self.next_track()
+                elif label == 'X':  # Volume Down
+                    self.adjust_volume(-5)
+                elif label == 'Y':  # Volume Up
+                    self.adjust_volume(5)
         except Exception as e:
             logger.error(f"Error handling button press: {e}")
 
@@ -255,36 +257,53 @@ class AudioPlayer:
             else:
                 self.player.play()
                 self.is_playing = True
-            self.update_display()
+            self.event_queue.put("UPDATE_DISPLAY")
 
     def start_playback(self):
         """Start playing the current track"""
         try:
             current_file = self.audio_files[self.current_track_index]
-            media = self.instance.media_new(current_file)
-            self.player.set_media(media)
+            
+            # Clean up old media and event manager
+            if self.current_media:
+                events = self.current_media.event_manager()
+                events.event_detach(vlc.EventType.MediaStateChanged)
+                self.current_media.release()
+            
+            # Create and set up new media
+            self.current_media = self.instance.media_new(current_file)
+            self.player.set_media(self.current_media)
+            
+            # Set up media events
+            events = self.current_media.event_manager()
+            events.event_attach(vlc.EventType.MediaStateChanged, self.on_media_state_changed)
+            
             self.player.audio_set_volume(self.volume)
             self.player.play()
             self.is_playing = True
-            self.update_display()
+            self.event_queue.put("UPDATE_DISPLAY")
             logger.info(f"Started playing: {current_file}")
             
-            # Set up end-of-media callback
-            events = self.player.event_manager()
-            events.event_attach(vlc.EventType.MediaPlayerEndReached, self.on_media_end)
         except Exception as e:
             logger.error(f"Error starting playback: {e}")
 
-    def on_media_end(self, event):
-        """Callback for when media playback ends"""
-        self.next_track()
+    def on_media_state_changed(self, event):
+        """Handle media state changes"""
+        try:
+            if event.type == vlc.EventType.MediaStateChanged:
+                state = event.u.new_state
+                if state == vlc.State.Ended:
+                    self.event_queue.put("MEDIA_END")
+        except Exception as e:
+            logger.error(f"Error in media state change handler: {e}")
 
     def stop_playback(self):
         """Stop the current playback"""
-        self.player.stop()
-        self.is_playing = False
-        self.update_display()
-        logger.info("Playback stopped")
+        with self.lock:
+            self.player.stop()
+            self.is_playing = False
+            self.event_queue.put("UPDATE_DISPLAY")
+            logger.info("Playback stopped")
 
     def next_track(self):
         """Switch to the next track"""
@@ -292,7 +311,7 @@ class AudioPlayer:
         if self.is_playing:
             self.start_playback()
         else:
-            self.update_display()
+            self.event_queue.put("UPDATE_DISPLAY")
         logger.info(f"Switched to track: {self.audio_files[self.current_track_index]}")
 
     def adjust_volume(self, delta):
@@ -300,16 +319,26 @@ class AudioPlayer:
         try:
             self.volume = max(0, min(100, self.volume + delta))
             self.player.audio_set_volume(self.volume)
-            self.update_display()
+            self.event_queue.put("UPDATE_DISPLAY")
             logger.info(f"Volume adjusted to {self.volume}%")
         except Exception as e:
             logger.error(f"Error adjusting volume: {e}")
 
     def cleanup(self):
         """Clean up resources on exit"""
+        logger.info("Starting cleanup...")
+        self.running = False
         self.stop_playback()
+        
+        if self.current_media:
+            self.current_media.release()
+        
         self.player.release()
         self.instance.release()
+        
+        if self.event_thread.is_alive():
+            self.event_thread.join(timeout=1.0)
+        
         GPIO.cleanup()
         logger.info("Cleanup completed")
 
@@ -319,11 +348,21 @@ class AudioPlayer:
             logger.info("Starting audio player")
             self.update_display()
             
-            # Keep the script running
-            signal.pause()
-        except KeyboardInterrupt:
-            logger.info("Received keyboard interrupt, shutting down")
-            self.cleanup()
+            # Set up signal handlers
+            def signal_handler(signum, frame):
+                logger.info(f"Received signal {signum}")
+                self.cleanup()
+                sys.exit(0)
+            
+            signal.signal(signal.SIGINT, signal_handler)
+            signal.signal(signal.SIGTERM, signal_handler)
+            
+            # Main loop with periodic display updates
+            while self.running:
+                if self.is_playing:
+                    self.event_queue.put("UPDATE_DISPLAY")
+                time.sleep(1)
+                
         except Exception as e:
             logger.error(f"Unexpected error: {e}")
             self.cleanup()
